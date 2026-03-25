@@ -9,7 +9,10 @@
   "dependencies": {
     "cheerio": "^1.0.0",
     "cors": "^2.8.5",
+    "dotenv": "^17.3.1",
     "express": "^4.18.2",
-    "node-fetch": "^2.7.0"
+    "mammoth": "^1.12.0",
+    "node-fetch": "^2.7.0",
+    "pdf-parse": "^2.4.5"
   }
 }

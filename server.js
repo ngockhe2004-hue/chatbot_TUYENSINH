@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
@@ -32,6 +33,24 @@ function writeDB(data) {
 const app = express();
 const PORT = 3000;
 
+// Đọc API Key: ưu tiên .env qua dotenv, nếu không được thì đọc file thủ công
+let SERVER_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
+if (!SERVER_API_KEY || SERVER_API_KEY === 'YOUR_API_KEY_HERE') {
+  try {
+    // Đọc thủ công để xử lý mã hóa UTF-16
+    const envContent = fs.readFileSync(path.join(__dirname, '.env'), 'utf16le').replace(/\r?\n/g, '\n');
+    const match = envContent.match(/GEMINI_API_KEY=(.+)/);
+    if (match) SERVER_API_KEY = match[1].trim();
+    console.log('🔄 [CONFIG] Đọc API Key qua phương thức dự phòng (UTF-16).');
+  } catch (_) { /* bỏ qua nếu file không tồn tại */ }
+}
+
+if (SERVER_API_KEY && SERVER_API_KEY !== 'YOUR_API_KEY_HERE') {
+  console.log('✅ [CONFIG] Đã nạp thành công API Key từ tệp .env trên server.');
+} else {
+  console.log('⚠️ [CONFIG] Chưa tìm thấy API Key hợp lệ trong .env. Chatbot sẽ yêu cầu người dùng nhập mã riêng.');
+}
+
 app.use(cors());
 app.use(express.json({ limit: '20mb' })); // Tăng limit cho hội thoại dài
 app.use(express.static(path.join(__dirname, 'public')));
@@ -50,15 +69,15 @@ async function processDocument(url) {
     if (contentType.includes('application/pdf') || url.toLowerCase().endsWith('.pdf')) {
       const data = await pdf(buffer);
       return `[NỘI DUNG FILE PDF: ${url}]\n${data.text}\n`;
-    } 
+    }
     else if (contentType.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document') || url.toLowerCase().endsWith('.docx')) {
       const data = await mammoth.extractRawText({ buffer });
       return `[NỘI DUNG FILE WORD: ${url}]\n${data.value}\n`;
-    } 
+    }
     else if (contentType.includes('text/plain') || url.toLowerCase().endsWith('.txt')) {
       return `[NỘI DUNG FILE TXT: ${url}]\n${buffer.toString()}\n`;
     }
-    
+
     return null;
   } catch (err) {
     console.error(`Error processing file ${url}:`, err.message);
@@ -98,15 +117,15 @@ async function processDocument(url) {
     if (contentType.includes('application/pdf') || url.toLowerCase().endsWith('.pdf')) {
       const data = await pdf(buffer);
       return `[NỘI DUNG FILE PDF: ${url}]\n${data.text}\n`;
-    } 
+    }
     else if (contentType.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document') || url.toLowerCase().endsWith('.docx')) {
       const data = await mammoth.extractRawText({ buffer });
       return `[NỘI DUNG FILE WORD: ${url}]\n${data.value}\n`;
-    } 
+    }
     else if (contentType.includes('text/plain') || url.toLowerCase().endsWith('.txt')) {
       return `[NỘI DUNG FILE TXT: ${url}]\n${buffer.toString()}\n`;
     }
-    
+
     return null;
   } catch (err) {
     console.error(`Error processing file ${url}:`, err.message);
@@ -143,10 +162,10 @@ app.get('/scrape', async (req, res) => {
 
     // 1. Phân tích nội dung trang chính
     const pageTitle = $('title').text().trim() || 'Không có tiêu đề';
-    
+
     // Lưu tạm bản sao để tìm link
     const $allLinks = $('a');
-    
+
     $('script, style, nav, footer, header, iframe, noscript, aside').remove();
     let mainContent = $('body').text();
 
@@ -165,7 +184,7 @@ app.get('/scrape', async (req, res) => {
         if (absoluteUrl.startsWith('javascript:')) return;
 
         const lowHref = absoluteUrl.toLowerCase();
-        
+
         // Nhận diện theo đuôi file
         if (lowHref.endsWith('.pdf') || lowHref.endsWith('.docx') || lowHref.endsWith('.txt')) {
           docLinks.add(absoluteUrl);
@@ -176,14 +195,14 @@ app.get('/scrape', async (req, res) => {
             subPageLinks.add(absoluteUrl);
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     });
 
     console.log(`🔍 Trang chính: Tìm thấy ${docLinks.size} file trực tiếp và ${subPageLinks.size} trang con tiềm năng.`);
 
     // 3. Deep Scraping cấp độ 1: Truy cập các trang con để tìm file
     const limitedSubPages = Array.from(subPageLinks).slice(0, 5); // Tối đa 5 trang con
-    
+
     const subPageResults = await Promise.all(
       limitedSubPages.map(async (subUrl) => {
         try {
@@ -192,7 +211,7 @@ app.get('/scrape', async (req, res) => {
           const subHtml = await subRes.text();
           const sub$ = cheerio.load(subHtml);
           const localDocs = [];
-          
+
           sub$('a').each((i, el) => {
             const h = sub$(el).attr('href');
             if (!h) return;
@@ -202,7 +221,7 @@ app.get('/scrape', async (req, res) => {
               if (lowH.endsWith('.pdf') || lowH.endsWith('.docx') || lowH.endsWith('.txt')) {
                 localDocs.push(absH);
               }
-            } catch (e) {}
+            } catch (e) { }
           });
           return localDocs;
         } catch (e) {
@@ -224,7 +243,7 @@ app.get('/scrape', async (req, res) => {
 
     // Gộp tất cả nội dung
     let finalContent = `--- NỘI DUNG TRANG CHÍNH (${url}) ---\n${mainContent}\n\n`;
-    
+
     docTexts.filter(t => t !== null).forEach(text => {
       finalContent += `--- TÀI LIỆU CỦA TRANG ---\n${text}\n`;
     });
@@ -258,9 +277,9 @@ app.get('/scrape', async (req, res) => {
     }
     writeDB(db);
 
-    res.json({ 
-      title: pageTitle, 
-      content: finalContent, 
+    res.json({
+      title: pageTitle,
+      content: finalContent,
       url,
       filesFound: docLinks.size,
       filesProcessed: finalDocLinks.length,
@@ -276,102 +295,108 @@ app.get('/scrape', async (req, res) => {
 // Route: Chat với Gemini API
 // ============================================================
 app.post('/chat', async (req, res) => {
-  const { apiKey, history, context, message } = req.body;
+  // Dùng SERVER_API_KEY (đã đọc từ .env kể cả UTF-16) hoặc key từ client
+  const apiKey = SERVER_API_KEY || req.body.apiKey;
+  const { history, context, message, attachments } = req.body;
 
   if (!apiKey) {
-    return res.status(400).json({ error: 'Thiếu Gemini API Key' });
+    return res.status(400).json({ error: 'Hệ thống chưa cấu hình API Key. Vui lòng liên hệ quản trị viên.' });
   }
-  if (!message) {
-    return res.status(400).json({ error: 'Thiếu nội dung tin nhắn' });
+  if (!message && (!attachments || attachments.length === 0)) {
+    return res.status(400).json({ error: 'Thiếu nội dung tin nhắn hoặc tệp đính kèm' });
   }
 
   try {
-    let systemInstruction = 'Bạn là một trợ lý AI thân thiện, hữu ích và thông minh. Hãy trả lời bằng tiếng Việt trừ khi người dùng yếu cầu khác.\n\nHãy sử dụng nội dung từ tài liệu hỗ trợ được cung cấp bên dưới để trả lời câu hỏi của người dùng một cách chính xác nhất. Nếu thông tin không có trong tài liệu, bạn vẫn có thể sử dụng kiến thức chung của mình nhưng hãy ưu tiên dữ liệu thực tế từ trang web.';
+    let systemInstruction = 'Bạn là Trợ lý Tuyển sinh của trường Đại học Quảng Nam. Hãy trả lời bằng tiếng Việt thân thiện, chuyên nghiệp và nhiệt tình.\n\nHãy sử dụng nội dung từ tài liệu hỗ trợ (trang web và CSDL) được cung cấp bên dưới để trả lời các thắc mắc về tuyển sinh, ngành học và thủ tục nhập học một cách chính xác nhất. Nếu thông tin không có trong tài liệu, bạn có thể trả lời dựa trên kiến thức chung nhưng hãy khuyến khích người dùng liên hệ phòng đào tạo để có thông tin chính xác nhất.';
 
     let currentContext = context;
     let dbContextFound = false;
 
-    // 1. Phân tích context hiện tại (nếu có từ tin nhắn hiện tại)
+    // 1. Phân tích context hiện tại
     if (currentContext && currentContext.content && currentContext.content.trim()) {
       systemInstruction += `\n\n=== NỘI DUNG TRANG HIỆN TẠI ===\nURL: ${currentContext.url}\nTiêu đề: ${currentContext.title}\n\n${currentContext.content}\n=== HẾT NGUỒN HIỆN TẠI ===`;
       dbContextFound = true;
     }
 
-    // 2. Tìm kiếm thông minh trong Database (RAG)
+    // 2. RAG từ Database
     const db = readDB();
     if (db.length > 0) {
       const stopWords = new Set(['là', 'của', 'và', 'cho', 'tôi', 'muốn', 'biết', 'về', 'có', 'không', 'như', 'thế', 'nào', 'với', 'ở', 'tại', 'trường', 'đại', 'học']);
-      const userMsgLower = message.toLowerCase();
+      const userMsgLower = (message || '').toLowerCase();
       const keywords = userMsgLower.split(/[\s,.;:!?]+/).filter(k => k.length > 1 && !stopWords.has(k));
 
       if (keywords.length > 0) {
         const scoredDocs = db.map(item => {
-          // Tránh gộp lại trang hiện tại đã có ở bước 1
           if (currentContext && item.url === currentContext.url) return { ...item, score: 0 };
-
           const title = (item.title || '').toLowerCase();
           const content = (item.content || '').toLowerCase();
           let score = 0;
-          
           keywords.forEach(kw => {
-            // Title match trọng số cao (5 điểm)
             if (title.includes(kw)) score += 5;
-            // Content match (1 điểm mỗi lần xuất hiện)
             const occurrences = (content.split(kw).length - 1);
-            score += Math.min(occurrences, 20); // Giới hạn điểm nội dung mỗi từ khóa để tránh spam
+            score += Math.min(occurrences, 20);
           });
           return { ...item, score };
         });
 
         const topMatches = scoredDocs
-          .filter(doc => doc.score > 2) // Ngưỡng điểm tối thiểu
+          .filter(doc => doc.score > 2)
           .sort((a, b) => b.score - a.score)
-          .slice(0, 4); // Lấy tối đa 4 trang liên quan nhất trong DB
+          .slice(0, 3);
 
         if (topMatches.length > 0) {
-          console.log(`📌 RAG: Đã gộp thêm ${topMatches.length} tài liệu từ CSDL vào ngữ cảnh.`);
           systemInstruction += `\n\n=== DỮ LIỆU LIÊN QUAN TỪ CSDL ===`;
           topMatches.forEach((doc, idx) => {
-            systemInstruction += `\n\n[TÀI LIỆU ${idx + 1}]\nTiêu đề: ${doc.title}\nURL: ${doc.url}\nNội dung:\n${doc.content.substring(0, 10000)}\n--- END TÀI LIỆU ${idx + 1} ---`;
+            const limitedContent = doc.content.length > 8000 ? doc.content.substring(0, 8000) + '...' : doc.content;
+            systemInstruction += `\n\n[TÀI LIỆU ${idx + 1}]\nTiêu đề: ${doc.title}\nURL: ${doc.url}\nNội dung:\n${limitedContent}\n--- END TÀI LIỆU ${idx + 1} ---`;
           });
           dbContextFound = true;
         }
       }
     }
 
-    if (!dbContextFound) {
-      systemInstruction += '\n\n(Lưu ý: Hiện chưa có dữ liệu cụ thể từ trang web này hoặc CSDL, hãy trả lời dựa trên kiến thức chung của bạn).';
+    // 3. Xử lý tệp đính kèm dạng văn bản (TXT/nhúng vào prompt)
+    let attachmentContent = '';
+    const visualParts = [];
+
+    if (attachments && attachments.length > 0) {
+      attachments.forEach(file => {
+        if (file.type === 'image') {
+          visualParts.push({
+            inlineData: {
+              mimeType: file.mimeType,
+              data: file.data
+            }
+          });
+        } else if (file.type === 'text') {
+          attachmentContent += `\n\n[NỘI DUNG TỆP ĐÍNH KÈM: ${file.name}]\n${file.data}\n[HẾT TỆP ${file.name}]`;
+        }
+      });
     }
 
-    // Xây dựng lịch sử hội thoại
-    const contents = [];
+    const finalUserMessage = (message || '') + attachmentContent;
 
+    // Xây dựng nội dung hội thoại
+    const contents = [];
     if (history && history.length > 0) {
       for (const msg of history) {
-        contents.push({
-          role: msg.role,
-          parts: [{ text: msg.text }],
-        });
+        contents.push({ role: msg.role, parts: [{ text: msg.text }] });
       }
     }
 
-    // Thêm tin nhắn hiện tại
+    // Thêm tin nhắn hiện tại kèm hình ảnh (nếu có)
     contents.push({
       role: 'user',
-      parts: [{ text: message }],
+      parts: [
+        { text: finalUserMessage || 'Phân tích tệp đính kèm này.' },
+        ...visualParts
+      ],
     });
 
     const requestBody = {
-      system_instruction: {
-        parts: [{ text: systemInstruction }],
-      },
+      system_instruction: { parts: [{ text: systemInstruction }] },
       contents,
-      generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 2048,
-      },
+      generationConfig: { temperature: 0.7, topK: 40, topP: 0.95, maxOutputTokens: 2048 },
     };
 
     const geminiRes = await fetch(
@@ -380,7 +405,7 @@ app.post('/chat', async (req, res) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
